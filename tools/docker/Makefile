@@ -72,14 +72,25 @@ SYSROOT_CREATOR_IMAGE_TAG := sysroot-creator-$(SYSROOT_REV)
 ## Linux image parameters
 LINUX_HEADER_BUILD_DIR := $(BUILD_DIR)/linux_headers
 LINUX_HEADER_ASSETS_BUILD_DIR := $(LINUX_HEADER_BUILD_DIR)/assets
+# Kernel versions selected to cover major enterprise distros and recent mainline.
+# Popular eBPF projects like cilium have moved to 5.10+ as their minimum
+# supported kernel version, with an exception for RHEL.
+# 4.18.20  - RHEL 8.10
+# 5.10.252 - Debian 11 / Amazon Linux 2
+# 5.14.21  - RHEL 9
+# 6.1.167  - Debian 12 / Amazon Linux 2023
+# 6.6.132  - Ubuntu 24.04 LTS
+# 6.12.80  - latest LTS
+# 6.18.21  - recent mainline
+# 6.19.10  - latest mainline
 LINUX_KERNEL_VERSIONS := 4.18.20 \
         5.10.252 \
-	5.14.21 \
-	6.1.167 \
-	6.6.132 \
-	6.12.80 \
-	6.18.21 \
-	6.19.10
+        5.14.21 \
+        6.1.167 \
+        6.6.132 \
+        6.12.80 \
+        6.18.21 \
+        6.19.10
 
 
 LINUX_HEADER_TEMPLATE := linux-headers-%.tar.gz
@@ -91,7 +102,6 @@ LINUX_HEADER_ARM64_TARGETS = $(addprefix $(LINUX_HEADER_ASSETS_BUILD_DIR)/, \
 
 LINUX_HEADERS_X86_64_MERGED_FILE := $(LINUX_HEADER_BUILD_DIR)/linux-headers-merged-x86_64-$(LINUX_HEADERS_REV).tar.gz
 LINUX_HEADERS_ARM64_MERGED_FILE := $(LINUX_HEADER_BUILD_DIR)/linux-headers-merged-arm64-$(LINUX_HEADERS_REV).tar.gz
-LINUX_HEADERS_GS_PATH := gs://pixie-dev-public/linux-headers/$(LINUX_HEADERS_REV)
 
 ## NATS image parameters.
 NATS_IMAGE_VERSION := 2.9.25
@@ -114,12 +124,13 @@ elasticsearch_image_tag := "gcr.io/pixie-oss/pixie-dev-public/elasticsearch:$(EL
 
 ## Linux kernel for qemu/BPF tests.
 KERNEL_BUILD_DIR := $(BUILD_DIR)/kernel_build
-KERNEL_BUILD_VERSIONS := 5.10.252 \
-	5.14.21 \
-	6.1.167 \
-	6.6.132 \
-	6.12.80 \
-	6.18.21
+KERNEL_BUILD_VERSIONS := 4.18.20 \
+        5.10.252 \
+        5.14.21 \
+        6.1.167 \
+        6.6.132 \
+        6.12.80 \
+        6.18.21
 
 KERNEL_BUILD_TEMPLATE := linux-build-%.tar.gz
 KERNEL_BUILD_TARGETS = $(addprefix $(KERNEL_BUILD_DIR)/, $(patsubst %,$(KERNEL_BUILD_TEMPLATE), $(KERNEL_BUILD_VERSIONS)))
@@ -228,7 +239,6 @@ $(LINUX_HEADERS_ARM64_MERGED_FILE): $(LINUX_HEADER_ARM64_TARGETS)
 
 .PHONY: upload_linux_headers
 upload_linux_headers:  $(LINUX_HEADERS_X86_64_MERGED_FILE) $(LINUX_HEADERS_ARM64_MERGED_FILE) ## Target to build and upload linux headers image
-	# gsutil cp $^ $(LINUX_HEADERS_GS_PATH)
 	$(GH_RELEASE_UPLOAD) linux-headers $(LINUX_HEADERS_REV) $^
 	sha256sum $^
 
