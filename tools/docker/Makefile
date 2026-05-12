@@ -125,12 +125,12 @@ elasticsearch_image_tag := "gcr.io/pixie-oss/pixie-dev-public/elasticsearch:$(EL
 ## Linux kernel for qemu/BPF tests.
 KERNEL_BUILD_DIR := $(BUILD_DIR)/kernel_build
 KERNEL_BUILD_VERSIONS := 4.18.20 \
-        5.10.252 \
-        5.14.21 \
-        6.1.167 \
-        6.6.132 \
-        6.12.80 \
-        6.18.21
+       5.10.252 \
+       5.14.21 \
+       6.1.167 \
+       6.6.132 \
+       6.12.80 \
+       6.18.21
 
 KERNEL_BUILD_TEMPLATE := linux-build-%.tar.gz
 KERNEL_BUILD_TARGETS = $(addprefix $(KERNEL_BUILD_DIR)/, $(patsubst %,$(KERNEL_BUILD_TEMPLATE), $(KERNEL_BUILD_VERSIONS)))
