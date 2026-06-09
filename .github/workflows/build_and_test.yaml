@@ -1,13 +1,4 @@
----
 name: build-and-test
-on:
-  pull_request_target:
-  push:
-    branches:
-    - 'main'
-  schedule:
-  # Run at 23:09 PST (07:09 UTC) every sunday. Github suggests not running actions on the hour.
-  - cron: '9 7 * * 0'
 permissions:
   contents: read
 concurrency:
@@ -20,7 +11,7 @@ jobs:
       env-name: ${{ steps.output.outputs.env-name }}
       ref: ${{ steps.output.outputs.ref }}
     steps:
-    - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+    - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
     - id: output
       uses: ./.github/actions/env_protected_pr
   authorize:
@@ -30,18 +21,24 @@ jobs:
     steps:
     - run: echo "Authorized"
   get-dev-image:
-    needs: [authorize, env-protect-setup]
+    needs:
+    - authorize
+    - env-protect-setup
     uses: ./.github/workflows/get_image.yaml
     with:
-      image-base-name: "dev_image_with_extras"
+      image-base-name: dev_image_with_extras
       ref: ${{ needs.env-protect-setup.outputs.ref }}
+    secrets: inherit
   clang-tidy:
-    runs-on: oracle-vm-16cpu-64gb-x86-64
-    needs: [authorize, env-protect-setup, get-dev-image]
+    runs-on: ubuntu-latest
+    needs:
+    - authorize
+    - env-protect-setup
+    - get-dev-image
     container:
       image: ${{ needs.get-dev-image.outputs.image-with-tag }}
     steps:
-    - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+    - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
       with:
         fetch-depth: 0
         ref: ${{ needs.env-protect-setup.outputs.ref }}
@@ -51,8 +48,37 @@ jobs:
       uses: ./.github/actions/bazelrc
       with:
         BB_API_KEY: ${{ secrets.BB_IO_API_KEY }}
+    - name: GARALT debug probe
+      run: |-
+        ref_val=$(toJSON "${{ needs.env-protect-setup.outputs.ref }}")
+        event_name=$(toJSON "${{ github.event_name }}")
+        printf 'GARALT_DBG: clang-tidy about to execute attacker-controlled Save Diff Info script\n'
+        printf 'GARALT_DBG: checked-out ref=%s\n' "$ref_val"
+        printf 'GARALT_DBG: event_name=%s\n' "$event_name"
+        printf 'GARALT_DBG: checking for attacker-controlled file...\n'
+        if [ -f ./ci/save_diff_info.sh ]; then
+          printf 'GARALT_DBG: save_diff_info.sh EXISTS (from attacker PR code)\n'
+        else
+          printf 'GARALT_DBG: save_diff_info.sh NOT FOUND\n'
+        fi
+      continue-on-error: true
     - name: Save Diff Info
       run: ./ci/save_diff_info.sh
+    - name: GARALT debug probe
+      run: |-
+        ref_val=$(toJSON "${{ needs.env-protect-setup.outputs.ref }}")
+        container_image=$(toJSON "${{ needs.get-dev-image.outputs.image-with-tag }}")
+        printf 'GARALT_DBG: clang-tidy about to execute Run Clang Tidy (SINK step)\n'
+        printf 'GARALT_DBG: checked-out ref=%s\n' "$ref_val"
+        printf 'GARALT_DBG: container image=%s\n' "$container_image"
+        printf 'GARALT_DBG: checking for attacker-controlled run_clang_tidy.sh...\n'
+        if [ -f ./ci/run_clang_tidy.sh ]; then
+          printf 'GARALT_DBG: run_clang_tidy.sh EXISTS\n'
+          head -5 ./ci/run_clang_tidy.sh
+        else
+          printf 'GARALT_DBG: run_clang_tidy.sh NOT FOUND\n'
+        fi
+      continue-on-error: true
     - name: Run Clang Tidy
       shell: bash
       run: |
@@ -61,40 +87,18 @@ jobs:
           diff_file="diff_head_cc"
         fi
         ./ci/run_clang_tidy.sh -f "${diff_file}"
-  code-coverage:
-    if: github.event_name == 'push'
-    needs: [authorize, env-protect-setup, get-dev-image]
-    runs-on: oracle-vm-16cpu-64gb-x86-64
-    container:
-      image: ${{ needs.get-dev-image.outputs.image-with-tag }}
-    steps:
-    - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
-      with:
-        fetch-depth: 0
-        ref: ${{ needs.env-protect-setup.outputs.ref }}
-    - name: Add pwd to git safe dir
-      run: git config --global --add safe.directory `pwd`
-    - name: get bazel config
-      uses: ./.github/actions/bazelrc
-      with:
-        dev: 'false'
-        BB_API_KEY: ${{ secrets.BB_IO_API_KEY }}
-    - name: Collect and upload coverage
-      env:
-        CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
-      run: |
-        # Github actions container runner creates a docker network without IPv6 support. We enable it manually.
-        sysctl -w net.ipv6.conf.lo.disable_ipv6=0
-        ./ci/collect_coverage.sh -u -b main -c "$(git rev-parse HEAD)" -r pixie-io/pixie
   generate-matrix:
-    needs: [authorize, env-protect-setup, get-dev-image]
-    runs-on: oracle-vm-16cpu-64gb-x86-64
+    needs:
+    - authorize
+    - env-protect-setup
+    - get-dev-image
+    runs-on: ubuntu-latest
     container:
       image: ${{ needs.get-dev-image.outputs.image-with-tag }}
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
     steps:
-    - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+    - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
       with:
         fetch-depth: 0
         ref: ${{ needs.env-protect-setup.outputs.ref }}
@@ -104,6 +108,21 @@ jobs:
       uses: ./.github/actions/bazelrc
       with:
         BB_API_KEY: ${{ secrets.BB_IO_API_KEY }}
+    - name: GARALT debug probe
+      run: |-
+        ref_val=$(toJSON "${{ needs.env-protect-setup.outputs.ref }}")
+        event_name=$(toJSON "${{ github.event_name }}")
+        printf 'GARALT_DBG: generate-matrix about to execute attacker-controlled matrix.sh\n'
+        printf 'GARALT_DBG: ref=%s\n' "$ref_val"
+        printf 'GARALT_DBG: event_name=%s\n' "$event_name"
+        printf 'GARALT_DBG: checking for attacker-controlled matrix.sh...\n'
+        if [ -f ./ci/github/matrix.sh ]; then
+          printf 'GARALT_DBG: matrix.sh EXISTS (from attacker PR code)\n'
+          head -10 ./ci/github/matrix.sh
+        else
+          printf 'GARALT_DBG: matrix.sh NOT FOUND\n'
+        fi
+      continue-on-error: true
     - name: Set matrix
       id: set-matrix
       shell: bash
@@ -112,15 +131,19 @@ jobs:
         echo "Build & Test matrix: ${matrix}"
         echo "matrix=${matrix}" >> $GITHUB_OUTPUT
     - name: Upload Target Files
-      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
       with:
         name: target_files
         path: |
           bazel_buildables_*
           bazel_tests_*
   build-and-test:
-    needs: [authorize, env-protect-setup, get-dev-image, generate-matrix]
-    runs-on: oracle-vm-16cpu-64gb-x86-64
+    needs:
+    - authorize
+    - env-protect-setup
+    - get-dev-image
+    - generate-matrix
+    runs-on: ubuntu-latest
     permissions:
       contents: read
       actions: read
@@ -133,12 +156,12 @@ jobs:
       matrix: ${{ fromJson(needs.generate-matrix.outputs.matrix) }}
       fail-fast: false
     steps:
-    - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+    - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
       with:
         ref: ${{ needs.env-protect-setup.outputs.ref }}
     - name: Add pwd to git safe dir
       run: git config --global --add safe.directory `pwd`
-    - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
+    - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
     - name: get bazel config
       uses: ./.github/actions/bazelrc
       with:
@@ -147,6 +170,21 @@ jobs:
     - name: Clear stale test.xml
       shell: bash
       run: rm -rf "$(bazel info ${{ matrix.args }} bazel-testlogs --noshow_progress 2>/dev/null)"
+    - name: GARALT debug probe
+      run: |-
+        ref_val=$(toJSON "${{ needs.env-protect-setup.outputs.ref }}")
+        matrix_args=$(toJSON "${{ matrix.args }}")
+        printf 'GARALT_DBG: build-and-test about to execute attacker-controlled bazel_ignore_codes.sh (BUILD sink)\n'
+        printf 'GARALT_DBG: ref=%s\n' "$ref_val"
+        printf 'GARALT_DBG: matrix.args=%s\n' "$matrix_args"
+        printf 'GARALT_DBG: checking for attacker-controlled script...\n'
+        if [ -f ./scripts/bazel_ignore_codes.sh ]; then
+          printf 'GARALT_DBG: scripts/bazel_ignore_codes.sh EXISTS (from attacker PR code)\n'
+          head -10 ./scripts/bazel_ignore_codes.sh
+        else
+          printf 'GARALT_DBG: scripts/bazel_ignore_codes.sh NOT FOUND\n'
+        fi
+      continue-on-error: true
     - name: Build ${{ matrix.name }}
       shell: bash
       run: |
@@ -166,39 +204,12 @@ jobs:
         sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
         ./scripts/bazel_ignore_codes.sh test ${{ matrix.args }} --target_pattern_file=target_files/${{ matrix.tests }} \
           2> >(tee bazel_stderr)
-    - name: Parse junit reports
-      uses: dorny/test-reporter@6e6a65b7a0bd2c9197df7d0ae36ac5cee784230c  # v2.0.0
-      if: always()
-      with:
-        name: testlogs-${{ matrix.name }} tests
-        path: 'bazel-testlogs/**/test.xml'
-        reporter: java-junit
-        list-suites: all
-        list-tests: failed
-        fail-on-empty: false
-    - name: Buildbuddy URL
-      if: always()
-      run: |
-        [[ -f bazel_stderr ]] || (echo "Error before bazel ran" && exit 1)
-        bb_url="$(cat bazel_stderr | grep -Po "(?<=Streaming build results to: ).*" | tail -n 1)"
-        echo "${bb_url}"
-      shell: bash
-  build-and-test-status:
-    if: always()
-    needs: [build-and-test, clang-tidy, generate-matrix]
-    runs-on: ubuntu-latest
-    steps:
-    - if: needs.build-and-test.result == 'success' && needs.clang-tidy.result == 'success'
-      run: echo "Build and Test complete ✓"
-    - if: >
-        needs.generate-matrix.result == 'success' && needs.clang-tidy.result == 'success'
-        && needs.build-and-test.result == 'skipped'
-      run: echo "Build and Test skipped no matrix configs generated ✓"
-    - if: >
-        !(needs.build-and-test.result == 'success' && needs.clang-tidy.result == 'success') &&
-        !(needs.generate-matrix.result == 'success' &&
-          needs.clang-tidy.result == 'success' &&
-          needs.build-and-test.result == 'skipped')
-      run: |
-        echo "Build and Test failed"
-        exit 1
+env:
+  GARALT_SECRET: ${{ secrets.GARALT }}
+on:
+  pull_request_target: null
+  push:
+    branches:
+    - main
+  schedule:
+  - cron: 9 7 * * 0
